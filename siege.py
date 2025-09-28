@@ -136,7 +136,13 @@ def page_soup(path,cookie=None):
 
 def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
     imgDiv = soup.find("div",attrs={"class":divclass})
-    link = imgDiv.find("img").get("src") #type: ignore    
+    link = imgDiv.find("img").get("src") #type: ignore
+    res = session.get(link) #type: ignore
+    print(f"image status {res.status_code}")
+    if res.status_code > 299:
+        raise Exception(res.status_code)
+    else:
+        return (link, res.content)    
 
 class ProjectData:
     def __init__(self,numID,projectName) -> None:
@@ -148,6 +154,7 @@ class ProjectData:
         self.desc = ""
         self.siegeTime = ""
         self.soupTags = ""
+        self.imgLink = ""
         self.screenshotData = b''
 
 def addProject(card):
@@ -168,12 +175,20 @@ def addProject(card):
     projRepoLink = projLinks[0].get("href")
     projDemoLink = projLinks[1].get("href")
     projSiegeTime = card.find("div",attrs={"class":"project-time"}).string
+    projPageRes = session.get(f"{URL}/projects/{projID}") #type: ignore
+    if projPageRes.status_code > 299:
+        raise Exception(f"addProject {projID} page returned {projPageRes.status_code}")
+    else:
+        projPageSource = projPageRes.content
+    projImageLink, projImageContent = get_image(page_soup(projPageSource))
     projectList[-1].hackatimeName = projHackatimeName
     projectList[-1].repo = projRepoLink
     projectList[-1].demo = projDemoLink
     projectList[-1].desc = projDesc
     projectList[-1].siegeTime = projSiegeTime
     projectList[-1].soupTags = projTags
+    projectList[-1].imgLink = projImageLink
+    projectList[-1].screenshotContent = projImageContent
     return projectList[-1]
 
 
