@@ -8,6 +8,7 @@ URL = "https://siege.hackclub.com"
 
 lastHeader = {}
 projectList = []
+projectListID = []
 jar = None
 sessionData = {}
 session = ""
@@ -84,8 +85,6 @@ def test_cookies():
     return err
 
 
-
-
 def init():
     global jar,sessionData, session
     jar = LWPCookieJar(COOKIE_FILE)
@@ -135,12 +134,24 @@ def page_soup(path,cookie=None):
     jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
     return BeautifulSoup(res.content,"html.parser")
 
+def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
+    imgDiv = soup.find("div",attrs={"class":divclass})
+    link = imgDiv.find("img").get("src") #type: ignore    
+
 class ProjectData:
     def __init__(self,numID,projectName) -> None:
         self.ID = numID
         self.name = projectName
+        self.hackatimeName = ""
+        self.repo = ""
+        self.demo = ""
+        self.desc = ""
+        self.siegeTime = ""
+        self.soupTags = ""
+        self.screenshotData = b''
 
 def addProject(card):
+    global projectList, projectListID
     cardOverlay = card.find("a",attrs={"class":"project-card-overlay"})
     projID = cardOverlay.get("href")[10:] # type: ignore
     cardHeader = card.find("div",attrs={"class":"project-header"})
@@ -148,6 +159,7 @@ def addProject(card):
     projTitle = cardHeader.h3.string # type: ignore
     projWeek = cardHeader.span.string # type: ignore
     projectList.append(ProjectData(projID,projectName=projTitle))
+    projectListID.append(projID)
     projectList[-1].week = projWeek
     projDesc = card.find("p",attrs={"class":"project-description"}).string # type: ignore
     projTags = card.find("div",attrs={"class":"project-tags"}).find_all("div") # type: ignore
@@ -155,13 +167,52 @@ def addProject(card):
     projLinks = card.find("div", attrs={"class":"project-links"}).find_all("a")
     projRepoLink = projLinks[0].get("href")
     projDemoLink = projLinks[1].get("href")
+    projSiegeTime = card.find("div",attrs={"class":"project-time"}).string
     projectList[-1].hackatimeName = projHackatimeName
     projectList[-1].repo = projRepoLink
     projectList[-1].demo = projDemoLink
+    projectList[-1].desc = projDesc
+    projectList[-1].siegeTime = projSiegeTime
     projectList[-1].soupTags = projTags
     return projectList[-1]
 
-if True:
+
+
+def soup_to_edit_keys(page: BeautifulSoup):
+    csrf = page.find("meta",attrs={"name":"csrf-token"}).get("content") #type: ignore
+    authentic = page.find("input",attrs={"name":"authenticity_token"}).get("value") #type: ignore
+    return((csrf,authentic))
+
+def edit_project(ID: int,
+                 proj_name: str | None = None, desc: str | None = None,
+                 repo: str | None = None, demo: str | None = None,
+                 hackatime_project: str | None = None, screenshot_path: str | None = None,
+                remove_scr="false"):
+    soup = page_soup(f"{URL}/projects/{ID}/edit")
+    csrf,authentic = soup_to_edit_keys(soup)
+    try:
+        listPos = projectListID.index(ID)
+    except ValueError:
+        return "project_not_found"
+    proj = projectList[listPos] #type: ProjectData
+    if proj_name == None or proj_name == proj.name:
+        proj_name = proj.name
+    if desc == None or desc == proj.desc:
+        desc = proj.desc
+    if repo == None or repo == proj.repo:
+        repo = proj.repo
+    if demo == None or demo == proj.demo:
+        demo = proj.demo
+    if hackatime_project == None or hackatime_project == proj.hackatimeName:
+        hackatime_project = proj.hackatimeName
+    if screenshot_path == None or screenshot_path == "":
+        screenshot_data = proj.screenshotData
+    else:
+        with open(screenshot_path,"rb") as file:
+            screenshot_data = file
+
+
+if False:
     with open("relevant-project-list.html") as file:
         projListHtml = file.read()
     projListSoup = BeautifulSoup(projListHtml,"html.parser")
@@ -170,3 +221,4 @@ else:
     projListSoup = page_soup("projects")
 for card in projListSoup.find_all("article"):
         addProject(card)
+
