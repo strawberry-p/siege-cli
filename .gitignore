@@ -2,6 +2,8 @@ session.json
 cookie.lwp
 *.html
 *.htm
+*.har
+project-edit-data.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

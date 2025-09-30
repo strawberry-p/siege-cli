@@ -12,7 +12,7 @@ projectListID = []
 jar = None
 sessionData = {}
 session = ""
-def new_cookie(name:str,value):
+def new_cookie(name:str,value,save=False):
     targetCookie = Cookie(
     version=0,
     name=name,
@@ -29,7 +29,8 @@ def new_cookie(name:str,value):
     rfc2109=False,
     )
     jar.set_cookie(targetCookie) # type: ignore
-    jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
+    if save:
+        jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
     return targetCookie
 
 def test_cookies():
@@ -54,7 +55,8 @@ def test_cookies():
                     print(f"session {testJarDict["_siege_session"]}")
                 except Exception:
                     pass
-                if not (("cf_clearance" in testJarDict.keys()) and not (testJarDict["cf_clearance"] == "")):
+                cfExists = ("cf_clearance" in sessionData.keys() and not sessionData["cf_clearance"] == "")
+                if not ("cf_clearance" in sessionData.keys() and not sessionData["cf_clearance"] == ""):
                     #holy logic soup
                     #in this branch, cf_clearance is missing
                     if not (testJarDict["_siege_session"] and not (testJarDict["_siege_session"] == "")):
@@ -96,6 +98,7 @@ def init():
         print(_)
     with open(SESSION_FILE) as file:
         sessionData = json.load(file)
+    new_cookie("cf_clearance",sessionData["cf_clearance"])
     test_cookies()
     session = r.Session()
     session.cookies = jar #type: ignore
@@ -127,15 +130,22 @@ def page_soup(path,cookie=None):
             if res.status_code > 299:
                 raise Exception(f"err {res.status_code}")
             else:
-                jar.clear("siege.hackclub.com","/","cf_clearance") #type: ignore
-                new_cookie("cf_clearance",newCfClearance) #remove the previous cf_clearance, write the new one
+                sessionData["cf_clearance"] = newCfClearance
+                with open(SESSION_FILE,"w") as file:
+                    json.dump(sessionData,file)
     lastHeader = res.headers
-    print(lastHeader)
+    #print(lastHeader)
     jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
     return BeautifulSoup(res.content,"html.parser")
 
 def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
     imgDiv = soup.find("div",attrs={"class":divclass})
+    print(imgDiv)
+    if imgDiv == None:
+        print(f"image not present in page, class {divclass}")
+        return ("",b"")
+    #detailsDiv = soup.find("div",attrs={"class":"project-details"})
+    #print(detailsDiv)
     link = imgDiv.find("img").get("src") #type: ignore
     res = session.get(link) #type: ignore
     print(f"image status {res.status_code}")
@@ -143,6 +153,30 @@ def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
         raise Exception(res.status_code)
     else:
         return (link, res.content)    
+
+def fallback_request(prep_req,threshold=399):
+    newSession = input("input new _siege_session:\n")
+    print(f"current session {r.utils.dict_from_cookiejar(jar)["_siege_session"][:10]}")
+    print(f"new session {newSession[:10]}")
+    res = session.send(prep_req,timeout=10,allow_redirects=False) #type: ignore
+    if res.status_code > threshold:
+        print(f"request failed with {res.status_code}")
+        newCfClearance = input("input new cf_clearance:\n")
+        print(f"current cf_clearance {sessionData["cf_clearance"][:10]}")
+        print(f"new cf_clearance {newCfClearance[:10]}")
+        res2 = session.request(prep_req,timeout=10,allow_redirects=False) #type: ignore
+        if res2.status_code > threshold:
+            raise Exception(f"retry request failed with {res2.status_code}")
+        else:
+            sessionData["cf_clearance"] = newCfClearance
+            with open(SESSION_FILE,"w") as file:
+                json.dump(sessionData,file)
+            new_cookie("_siege_session",newSession,save=True)
+            return res2
+    else:
+        new_cookie("_siege_session",newSession)
+        return res
+
 
 class ProjectData:
     def __init__(self,numID,projectName) -> None:
@@ -161,12 +195,15 @@ def addProject(card):
     global projectList, projectListID
     cardOverlay = card.find("a",attrs={"class":"project-card-overlay"})
     projID = cardOverlay.get("href")[10:] # type: ignore
+    if True:
+        print(f"project overlay link {cardOverlay.get("href")}")
     cardHeader = card.find("div",attrs={"class":"project-header"})
     print(cardHeader)
     projTitle = cardHeader.h3.string # type: ignore
     projWeek = cardHeader.span.string # type: ignore
     projectList.append(ProjectData(projID,projectName=projTitle))
     projectListID.append(projID)
+    #add projectlist object
     projectList[-1].week = projWeek
     projDesc = card.find("p",attrs={"class":"project-description"}).string # type: ignore
     projTags = card.find("div",attrs={"class":"project-tags"}).find_all("div") # type: ignore
@@ -180,7 +217,8 @@ def addProject(card):
         raise Exception(f"addProject {projID} page returned {projPageRes.status_code}")
     else:
         projPageSource = projPageRes.content
-    projImageLink, projImageContent = get_image(page_soup(projPageSource))
+    projImageLink, projImageContent = get_image(BeautifulSoup(projPageSource,"html.parser")) #type: ignore
+    #get the respective values from the Soup object
     projectList[-1].hackatimeName = projHackatimeName
     projectList[-1].repo = projRepoLink
     projectList[-1].demo = projDemoLink
@@ -189,6 +227,7 @@ def addProject(card):
     projectList[-1].soupTags = projTags
     projectList[-1].imgLink = projImageLink
     projectList[-1].screenshotContent = projImageContent
+    #set the object properties from the values
     return projectList[-1]
 
 
@@ -202,13 +241,13 @@ def edit_project(ID: int,
                  proj_name: str | None = None, desc: str | None = None,
                  repo: str | None = None, demo: str | None = None,
                  hackatime_project: str | None = None, screenshot_path: str | None = None,
-                remove_scr="false"):
-    soup = page_soup(f"{URL}/projects/{ID}/edit")
+                remove_scr="false",send_request=True):
+    soup = page_soup(f"projects/{ID}/edit")
     csrf,authentic = soup_to_edit_keys(soup)
     try:
         listPos = projectListID.index(ID)
     except ValueError:
-        return "project_not_found"
+        return ("project_not_found",404)
     proj = projectList[listPos] #type: ProjectData
     if proj_name == None or proj_name == proj.name:
         proj_name = proj.name
@@ -225,6 +264,52 @@ def edit_project(ID: int,
     else:
         with open(screenshot_path,"rb") as file:
             screenshot_data = file
+    if type(screenshot_data) == bytes:
+        screenshot_data = str(screenshot_data)[2:-1] #cut off b''
+    formData = {"_method":"patch",
+                "authenticity_token":authentic,
+                "remove_screenshot":remove_scr,
+                "project[name]":proj_name,
+                "project[description]":desc,
+                "project[repo_url]":repo,
+                "project[demo_url]":demo,
+                "project[hackatime_projects]": "",
+                "project[hackatime_projects]": hackatime_project}
+    headers = {"Origin":URL,
+               "Referer":f"{URL}/projects/{ID}/edit",
+               "Host":"siege.hackclub.com",
+               "x-csrf-token":csrf}
+    req = r.Request("POST",f"{URL}/projects/{ID}",headers,
+                    {"project[screenshot]":screenshot_data},formData)
+    if send_request:
+        prepReq = session.prepare_request(req) #type: ignore
+        if True:
+            print(prepReq.headers)
+        res = session.send(prepReq,timeout=10,allow_redirects=False) #type: ignore
+        print(f"project edit {res.status_code}")
+        if res.status_code > 399:
+            res = fallback_request(prepReq)
+        if res.status_code < 400:
+            #save the updated content to the project entry on request success
+            projectList[listPos].name = proj_name
+            projectList[listPos].desc = desc
+            projectList[listPos].repo = repo
+            projectList[listPos].demo = demo
+            projectList[listPos].hackatimeName = hackatime_project
+            if not (screenshot_path == None or screenshot_path == ""):
+                projectList[listPos].screenshotData = screenshot_data
+                newLink,newImgContent = get_image(page_soup(f"projects/{ID}"))
+                projectList[listPos].imgLink = newLink
+                if not screenshot_data == newImgContent:
+                    #i am curious about the content returned from the cdn-ish link
+                    print(f"content differs: beginning {str(screenshot_data)[:10]} vs {str(newImgContent)[:10]}")
+                    print(f"end {str(screenshot_data)[-10:]} vs {str(newImgContent)[-10:]}")
+        return res.status_code
+    else:
+        print(formData)
+        return 0
+        
+
 
 
 if False:
