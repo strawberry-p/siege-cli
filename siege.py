@@ -2,9 +2,12 @@ from bs4 import BeautifulSoup, Tag
 import requests as r
 import json,os,argparse
 from http.cookiejar import LWPCookieJar,Cookie
+import lxml
 COOKIE_FILE = "cookie.lwp"
 SESSION_FILE = 'session.json'
 URL = "https://siege.hackclub.com"
+HTML_PARSER = "html.parser"
+debugBool = False
 
 lastHeader = {}
 projectList = []
@@ -63,7 +66,8 @@ def test_cookies():
                         err = "cf_clearance_unspecified"
                 elif not(("_siege_session" in testJarDict.keys()) and not (testJarDict["_siege_session"] == "")):
                     err = "_siege_session_unspecified"
-    print(f"cookie test: {err}")
+    if err != "":
+        print(f"cookie test: {err}")
     if err == "":
         pass
     elif err == "_siege_session_unspecified" or err == "file_not_exists" or err == "empty_or_malformed_file":
@@ -115,7 +119,6 @@ def page_soup(path,cookie=None):
         res = session.get(f"{URL}/{path}",headers={"Cookie":f"_siege_session={cookie}"}) # type: ignore
     else:
         res = session.get(f"{URL}/{path}") # type: ignore
-    print(res.status_code)
     if res.status_code == 404:
         raise Exception(f"server returned 404 for url {URL}/{path}")
     elif res.status_code > 299 and not res.status_code == 404:
@@ -137,7 +140,7 @@ def page_soup(path,cookie=None):
     lastHeader = res.headers
     #print(lastHeader)
     jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
-    return BeautifulSoup(res.content,"html.parser")
+    return BeautifulSoup(res.content,HTML_PARSER)
 
 def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
     imgDiv = soup.find("div",attrs={"class":divclass})
@@ -149,7 +152,8 @@ def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
     #print(detailsDiv)
     link = imgDiv.find("img").get("src") #type: ignore
     res = session.get(link) #type: ignore
-    print(f"image status {res.status_code}")
+    if debugBool:
+        print(f"image status {res.status_code}")
     if res.status_code > 299:
         raise Exception(res.status_code)
     else:
@@ -187,6 +191,7 @@ class ProjectData:
         self.repo = ""
         self.demo = ""
         self.desc = ""
+        self.week = "Week unknown"
         self.siegeTime = ""
         self.soupTags = ""
         self.imgLink = ""
@@ -198,15 +203,15 @@ def addProject(card):
     cardOverlay = card.find("a",attrs={"class":"project-card-overlay"})
     if cardOverlay.get("href")[1] == "a":
         projID = cardOverlay.get("href")[8:]
-        print(f"armory project {projID}")
+        if debugBool:
+            print(f"armory project {projID}")
         oldProject = False
     else:
         projID = cardOverlay.get("href")[10:] # type: ignore
         oldProject = True
-    if True:
+    if debugBool:
         print(f"project overlay link {cardOverlay.get("href")}")
     cardHeader = card.find("div",attrs={"class":"project-header"})
-    print(cardHeader)
     projTitle = cardHeader.h3.string # type: ignore
     projWeek = cardHeader.span.string # type: ignore
     projectList.append(ProjectData(int(projID),projectName=projTitle))
@@ -221,13 +226,13 @@ def addProject(card):
     projLinks = card.find("div", attrs={"class":"project-links"}).find_all("a")
     projRepoLink = projLinks[0].get("href")
     projDemoLink = projLinks[1].get("href")
-    projSiegeTime = card.find("div",attrs={"class":"project-time"}).string
+    projSiegeTime = card.find("div",attrs={"class":"project-time"}).string.strip()
     projPageRes = session.get(f"{URL}/projects/{projID}") #type: ignore
     if projPageRes.status_code > 299:
         raise Exception(f"addProject {projID} page returned {projPageRes.status_code}")
     else:
         projPageSource = projPageRes.content
-    projImageLink, projImageContent = get_image(BeautifulSoup(projPageSource,"html.parser")) #type: ignore
+    projImageLink, projImageContent = get_image(BeautifulSoup(projPageSource,HTML_PARSER)) #type: ignore
     #get the respective values from the Soup object
     projectList[-1].hackatimeName = projHackatimeName
     projectList[-1].repo = projRepoLink
@@ -271,6 +276,7 @@ def edit_project(ID: int | str,
     try:
         listPos = projectListID.index(ID)
     except ValueError:
+        print(f"project {ID} is not in your projects")
         return ("project_not_found_in_list",404)
     proj = projectList[listPos] #type: ProjectData
     if proj_name == None or proj_name == proj.name:
@@ -348,19 +354,68 @@ def edit_project(ID: int | str,
                     #i am curious about the content returned from the cdn-ish link
                     print(f"content differs: beginning {str(screenshot_data)[:10]} vs {str(newImgContent)[:10]}")
                     print(f"end {str(screenshot_data)[-10:]} vs {str(newImgContent)[-10:]}")
+        print(f"project edit returned {res.status_code}")
         return(("sent",res.status_code))
     else:
         print(formData)
         return ("dummy",0)
-        
+
+
+
+def project_nice_view(proj:ProjectData):
+    print("--------")
+    print(f"[{proj.week}] {proj.name} (ID {proj.ID}):")
+    print(f"  {proj.desc}")
+    if ({proj.hackatimeName} != None) and proj.hackatimeName != "" and proj.hackatimeName != "#":
+        print(f"  Hackatime {proj.hackatimeName} ({proj.siegeTime})")
+    if proj.repo != "":
+        print(f"  Repo {proj.repo}")
+    if proj.demo != "":
+        print(f"  Demo {proj.demo}")
+
 def arg_operate():
+    global HTML_PARSER
     parser = argparse.ArgumentParser(description="Utility for listing and updating your Siege projects")
+    parser.add_argument("cmd",default="list",choices=["list","edit","show"])
+    parser.add_argument("-l","--lxml",action="store_true",help="Use a faster parser (LXML). Use if you installed it: 'pip install lxml'")
+    updateGroup = parser.add_argument_group("Update","Arguments for updating your project's info")
+    updateGroup.add_argument("-i","--id",default=0,type=int,help="Siege project ID. Needed for project updating.",required=False)
+    updateGroup.add_argument("-t","--title",required=False)
+    updateGroup.add_argument("-b","--description",required=False)
+    updateGroup.add_argument("-d","--demo",help="Project demo link",required=False)
+    updateGroup.add_argument("-r","--repo",help="Project repository link",required=False)
+    updateGroup.add_argument("-s","--screenshot",help="Path from cwd to the new screenshot file",required=False)
+    updateGroup.add_argument("-x","--remove-screenshot",help="Flag for removing the current screenshot",action="store_true")
+    updateGroup.add_argument("-w","--hackatime",help="Hackatime project name",required=False)
+    args = parser.parse_args()
+    if args.lxml:
+        HTML_PARSER = "lxml"
+    if args.cmd == "list":
+        for project in projectList:
+            project_nice_view(project)
+    elif args.cmd == "edit":
+        if args.remove_screenshot:
+            remove_scr = "true"
+        else:
+            remove_scr = "false"
+        if args.id == 0:
+            raise Exception(f"To update a project, specify the project ID. Choose out of {projectListID}")
+        print(edit_project(args.id,proj_name=args.title,desc=args.description,
+                     repo=args.repo,demo=args.demo,hackatime_project=args.hackatime,
+                     screenshot_path=args.screenshot,remove_scr=remove_scr))
+    elif args.cmd == "show":
+        if args.id == 0:
+            raise Exception(f"To show a project, specify the project ID. Choose out of {projectListID}")
+        listPos = projectListID.index(args.id)
+        project_nice_view(projectList[listPos])
+    
+
 
 init()
 if False:
     with open("relevant-project-list.html") as file:
         projListHtml = file.read()
-    projListSoup = BeautifulSoup(projListHtml,"html.parser")
+    projListSoup = BeautifulSoup(projListHtml,HTML_PARSER)
     
 else:
     projListSoup = page_soup("projects")
