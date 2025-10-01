@@ -1,5 +1,7 @@
 # siege-cli
 
+<img width="485" height="199" alt="siege-build" src="https://github.com/user-attachments/assets/ee82fb2c-ee98-44d4-b491-fa8d8eb62fee" />
+
 siege-cli is a CLI tool for interacting with the [Siege](https://siege.hackclub.com) website.
 Currently, listing your projects and updating their information is supported.
 
