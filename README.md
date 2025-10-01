@@ -25,6 +25,21 @@ This can also be done by pressing Enter to the cf_clearance prompt without pasti
 - In the devtools sidebar, under the Storage group, select Cookies>https://siege.hackclub.com
 - Triple click the value of the respective cookie and copy it
 
+## Usage
+
+`py siege.py`/`siege.exe` take subcommands:
+list - no other args needed, lists your Siege projects
+show - `--id` arg needed, shows info about one of your Siege projects matching the ID
+edit - `--id` arg needed, updates properties of your Siege project matching the ID according to the Update flags you pass:\
+
+- `-t TITLE` `--title TITLE` Project display name
+- `-b DESC` `--description DESC` Project description
+- `-d LINK` `--demo LINK` Link to the project's demo
+- `-r LINK` `--repo LINK` Link to the project's repository
+- `-s PATH` `--screenshot PATH` Local path from the cwd to the screenshot you want to upload
+- `-x` `--remove-screenshot` Flag for removing the current project screenshot
+- `-w` `--hackatime HACKATIME_NAME` Name of the hackatime project associated with this project
+
 ## Installation
 
 Note: for any pip packages, depending on your system you might need to use your normal package manager to install python packages, or pass --break-system-packages to pip. A venv can also be used.
