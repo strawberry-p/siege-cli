@@ -432,18 +432,14 @@ def arg_operate():
         project_nice_view(projectList[listPos])
     
 
-
-init()
-if False:
-    with open("relevant-project-list.html") as file:
-        projListHtml = file.read()
-    projListSoup = BeautifulSoup(projListHtml,HTML_PARSER)
-    
-else:
+def package():
+    init()
     projListSoup = page_soup("projects")
-for card in projListSoup.find_all("article"):
-        addProject(card)
+    for card in projListSoup.find_all("article"):
+            addProject(card)
 
+    if __name__ == "__main__":
+        arg_operate()
 if __name__ == "__main__":
-    arg_operate()
+    package()
 
