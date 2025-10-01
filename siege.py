@@ -30,7 +30,11 @@ def new_cookie(name:str,value,save=False):
     rest={"HttpOnly": None},
     rfc2109=False,
     )
-    jar.set_cookie(targetCookie) # type: ignore
+    if value != "":
+        jar.set_cookie(targetCookie) # type: ignore
+    else:
+        if debugBool:
+            print(f"cookie {name} is empty and therefore unset")
     if save:
         jar.save(ignore_discard=True,ignore_expires=True) # type: ignore
     return targetCookie
@@ -62,7 +66,10 @@ def test_cookies():
                         err = "both_unspecified"
                     else:
                         #session isn't missing, cf_clearance is the only one
-                        err = "cf_clearance_unspecified"
+                        if "cf_clearance" in sessionData.keys():
+                            err = "cf_clearance_empty"
+                        else:
+                            err = "cf_clearance_unspecified"
                 elif not(("_siege_session" in testJarDict.keys()) and not (testJarDict["_siege_session"] == "")):
                     err = "_siege_session_unspecified"
     if err != "":
@@ -72,6 +79,8 @@ def test_cookies():
     elif err == "_siege_session_unspecified" or err == "file_not_exists" or err == "empty_or_malformed_file":
         newSession = input("enter your _siege_session:\n")
         new_cookie("_siege_session",newSession,save=True)
+    elif err == "cf_clearance_empty":
+        print("passing with empty cf_clearance")
     elif err == "cf_clearance_unspecified":
         newCfClearance = input("enter your cf_clearance:\n")
         new_cookie("cf_clearance",newCfClearance) #no saving because i only want it in the session's jar
@@ -297,7 +306,15 @@ def edit_project(ID: int | str,
     if screenshot_path == None or screenshot_path == "":
         screenshot_data = proj.screenshotData
         nameFromLink = proj.imgLink.split("/") #the filehost keeps the img name
+        if debugBool:
+            print(f"current filename {nameFromLink[-1]}")
         reqFile = file_format(nameFromLink[-1],screenshot_data)
+        if debugBool:
+            if len(reqFile) > 2:
+                print(f"type {reqFile[2]}")
+            else:
+                print("type not specified")
+            print(f"begins {reqFile[1][:60]} ends {reqFile[1][-10:]}")
     else:
         with open(screenshot_path,"rb") as file:
             screenshot_data = file.read()
@@ -328,11 +345,11 @@ def edit_project(ID: int | str,
                 print(prepReq.body[1000:1500])
                 print("========")
         res = session.send(prepReq,timeout=10,allow_redirects=False) #type: ignore
-        print(f"project edit {res.status_code}")
+        #print(f"project edit {res.status_code}")
         if res.status_code == 404:
             print(f"project {ID} not found, returned 404")
         elif res.status_code == 422:
-            print("the dev done goofed up")
+            print("the dev done goofed up (status 422, probably malformed screenshot in request)")
         elif res.status_code > 399:
             if not show_content:
                 print(res.content)
@@ -389,7 +406,10 @@ def arg_operate():
     updateGroup.add_argument("-s","--screenshot",help="Path from cwd to the new screenshot file",required=False)
     updateGroup.add_argument("-x","--remove-screenshot",help="Flag for removing the current screenshot",action="store_true")
     updateGroup.add_argument("-w","--hackatime",help="Hackatime project name",required=False)
+    parser.add_argument("--debug",action="store_true",required=False)
     args = parser.parse_args()
+    if args.debug:
+        debugBool = True
     if args.lxml:
         HTML_PARSER = "lxml"
     if args.cmd == "list":
