@@ -2,7 +2,6 @@ from bs4 import BeautifulSoup, Tag
 import requests as r
 import json,os,argparse
 from http.cookiejar import LWPCookieJar,Cookie
-import lxml
 COOKIE_FILE = "cookie.lwp"
 SESSION_FILE = 'session.json'
 URL = "https://siege.hackclub.com"
