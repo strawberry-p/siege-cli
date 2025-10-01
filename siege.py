@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup, Tag
 import requests as r
-import json,os
+import json,os,argparse
 from http.cookiejar import LWPCookieJar,Cookie
 COOKIE_FILE = "cookie.lwp"
 SESSION_FILE = 'session.json'
@@ -34,27 +34,20 @@ def new_cookie(name:str,value,save=False):
     return targetCookie
 
 def test_cookies():
-    print("cookies might be missing or malformed")
+    global sessionData
+    print("testing cookies")
     err = ""
     if not os.path.exists(COOKIE_FILE):
         err = "file_not_exists"
     if err == "":
         with open(COOKIE_FILE) as file:
             if not ("e" in file.read()):
-                err = "empty_file"
+                err = "empty_or_malformed_file"
             else:
                 testJar = LWPCookieJar(COOKIE_FILE)
                 testJar.load()
                 testJarDict = r.utils.dict_from_cookiejar(testJar)
-                print(testJarDict)
-                try:
-                    print(f"cf {testJarDict["cf_clearance"]}")
-                except Exception:
-                    pass
-                try:
-                    print(f"session {testJarDict["_siege_session"]}")
-                except Exception:
-                    pass
+                #print(testJarDict)
                 cfExists = ("cf_clearance" in sessionData.keys() and not sessionData["cf_clearance"] == "")
                 if not ("cf_clearance" in sessionData.keys() and not sessionData["cf_clearance"] == ""):
                     #holy logic soup
@@ -70,15 +63,18 @@ def test_cookies():
                         err = "cf_clearance_unspecified"
                 elif not(("_siege_session" in testJarDict.keys()) and not (testJarDict["_siege_session"] == "")):
                     err = "_siege_session_unspecified"
-    print(err)
+    print(f"cookie test: {err}")
     if err == "":
         pass
-    elif err == "_siege_session_unspecified":
+    elif err == "_siege_session_unspecified" or err == "file_not_exists" or err == "empty_or_malformed_file":
         newSession = input("enter your _siege_session:\n")
-        new_cookie("_siege_session",newSession)
+        new_cookie("_siege_session",newSession,save=True)
     elif err == "cf_clearance_unspecified":
         newCfClearance = input("enter your cf_clearance:\n")
-        new_cookie("cf_clearance",newCfClearance)
+        new_cookie("cf_clearance",newCfClearance) #no saving because i only want it in the session's jar
+        sessionData = {"cf_clearance":newCfClearance}
+        with open(SESSION_FILE,"w") as file:
+            json.dump(sessionData,file)
     else:
         newSession = input("enter your _siege_session:\n")
         newCfClearance = input("enter your cf_clearance:\n")
@@ -93,16 +89,21 @@ def init():
     try:
         jar.load()
     except FileNotFoundError:
-        pass
+        print("cookie file not found")
     except Exception as _:
         print(_)
-    with open(SESSION_FILE) as file:
-        sessionData = json.load(file)
+    try:
+        with open(SESSION_FILE) as file:
+            sessionData = json.load(file)
+    except FileNotFoundError:
+        newCfClearance = input("enter the cf_clearance cookie:\n")
+        sessionData = {"cf_clearance": newCfClearance}
+        with open(SESSION_FILE,"w") as file:
+            json.dump(sessionData,file)
     new_cookie("cf_clearance",sessionData["cf_clearance"])
     test_cookies()
     session = r.Session()
     session.cookies = jar #type: ignore
-init()
 
 #note: siege does some funky stuff with cookies
 #apparently, it gets rotated every request, with the server response's
@@ -140,7 +141,7 @@ def page_soup(path,cookie=None):
 
 def get_image(soup: BeautifulSoup, divclass = "project-screenshots"):
     imgDiv = soup.find("div",attrs={"class":divclass})
-    print(imgDiv)
+    #print(imgDiv)
     if imgDiv == None:
         print(f"image not present in page, class {divclass}")
         return ("",b"")
@@ -189,20 +190,29 @@ class ProjectData:
         self.siegeTime = ""
         self.soupTags = ""
         self.imgLink = ""
+        self.linkPart = "armory"
         self.screenshotData = b''
 
 def addProject(card):
     global projectList, projectListID
     cardOverlay = card.find("a",attrs={"class":"project-card-overlay"})
-    projID = cardOverlay.get("href")[10:] # type: ignore
+    if cardOverlay.get("href")[1] == "a":
+        projID = cardOverlay.get("href")[8:]
+        print(f"armory project {projID}")
+        oldProject = False
+    else:
+        projID = cardOverlay.get("href")[10:] # type: ignore
+        oldProject = True
     if True:
         print(f"project overlay link {cardOverlay.get("href")}")
     cardHeader = card.find("div",attrs={"class":"project-header"})
     print(cardHeader)
     projTitle = cardHeader.h3.string # type: ignore
     projWeek = cardHeader.span.string # type: ignore
-    projectList.append(ProjectData(projID,projectName=projTitle))
-    projectListID.append(projID)
+    projectList.append(ProjectData(int(projID),projectName=projTitle))
+    projectListID.append(int(projID))
+    if oldProject:
+        projectList[-1].linkPart = "projects"
     #add projectlist object
     projectList[-1].week = projWeek
     projDesc = card.find("p",attrs={"class":"project-description"}).string # type: ignore
@@ -237,17 +247,31 @@ def soup_to_edit_keys(page: BeautifulSoup):
     authentic = page.find("input",attrs={"name":"authenticity_token"}).get("value") #type: ignore
     return((csrf,authentic))
 
-def edit_project(ID: int,
+def file_format(path,fileContent,octet=False):
+    imgName = os.path.basename(path)
+    try:
+        imgExt = os.path.splitext[1][1:]
+    except Exception:
+        imgExt = ""
+    if octet:
+        imgTuple = (imgName,fileContent,"application/octet-stream")
+    elif imgExt and imgExt != "" and imgExt != "mp4":
+        imgTuple = (imgName,fileContent,f"image/{imgExt}")
+    else:
+        imgTuple = (imgName,fileContent)
+    return imgTuple
+
+def edit_project(ID: int | str,
                  proj_name: str | None = None, desc: str | None = None,
                  repo: str | None = None, demo: str | None = None,
                  hackatime_project: str | None = None, screenshot_path: str | None = None,
-                remove_scr="false",send_request=True):
+                remove_scr="false",send_request=True, show_content=False):
     soup = page_soup(f"projects/{ID}/edit")
     csrf,authentic = soup_to_edit_keys(soup)
     try:
         listPos = projectListID.index(ID)
     except ValueError:
-        return ("project_not_found",404)
+        return ("project_not_found_in_list",404)
     proj = projectList[listPos] #type: ProjectData
     if proj_name == None or proj_name == proj.name:
         proj_name = proj.name
@@ -255,17 +279,23 @@ def edit_project(ID: int,
         desc = proj.desc
     if repo == None or repo == proj.repo:
         repo = proj.repo
+    if repo == "#":
+        print("repo fix")
+        repo = "" #fix wrong detection of an unspecified link
     if demo == None or demo == proj.demo:
         demo = proj.demo
+    if demo == "#":
+        print("demo fix")
+        demo = ""
     if hackatime_project == None or hackatime_project == proj.hackatimeName:
         hackatime_project = proj.hackatimeName
     if screenshot_path == None or screenshot_path == "":
         screenshot_data = proj.screenshotData
     else:
         with open(screenshot_path,"rb") as file:
-            screenshot_data = file
-    if type(screenshot_data) == bytes:
-        screenshot_data = str(screenshot_data)[2:-1] #cut off b''
+            screenshot_data = file.read()
+    #if type(screenshot_data) == bytes:
+    #    screenshot_data = str(screenshot_data)[2:-1] #cut off b''
     formData = {"_method":"patch",
                 "authenticity_token":authentic,
                 "remove_screenshot":remove_scr,
@@ -276,18 +306,32 @@ def edit_project(ID: int,
                 "project[hackatime_projects]": "",
                 "project[hackatime_projects]": hackatime_project}
     headers = {"Origin":URL,
-               "Referer":f"{URL}/projects/{ID}/edit",
+               "Referer":f"{URL}/{proj.linkPart}/{ID}/edit",
                "Host":"siege.hackclub.com",
                "x-csrf-token":csrf}
-    req = r.Request("POST",f"{URL}/projects/{ID}",headers,
-                    {"project[screenshot]":screenshot_data},formData)
+    req = r.Request("POST",f"{URL}/{proj.linkPart}/{ID}",headers,
+                    {"project[screenshot]":file_format(screenshot_path,screenshot_data)},formData)
     if send_request:
         prepReq = session.prepare_request(req) #type: ignore
         if True:
             print(prepReq.headers)
+            if show_content:
+                print("========\n========\n========")
+                print(prepReq.body[1000:1500])
+                print("========")
         res = session.send(prepReq,timeout=10,allow_redirects=False) #type: ignore
         print(f"project edit {res.status_code}")
-        if res.status_code > 399:
+        if res.status_code == 404:
+            print(f"project {ID} not found, returned 404")
+        elif res.status_code == 422:
+            print("the dev done goofed up")
+        elif res.status_code > 399:
+            if not show_content:
+                print(res.content)
+            try:
+                print(res.json())
+            except Exception:
+                print("json error")
             res = fallback_request(prepReq)
         if res.status_code < 400:
             #save the updated content to the project entry on request success
@@ -304,14 +348,15 @@ def edit_project(ID: int,
                     #i am curious about the content returned from the cdn-ish link
                     print(f"content differs: beginning {str(screenshot_data)[:10]} vs {str(newImgContent)[:10]}")
                     print(f"end {str(screenshot_data)[-10:]} vs {str(newImgContent)[-10:]}")
-        return res.status_code
+        return(("sent",res.status_code))
     else:
         print(formData)
-        return 0
+        return ("dummy",0)
         
+def arg_operate():
+    parser = argparse.ArgumentParser(description="Utility for listing and updating your Siege projects")
 
-
-
+init()
 if False:
     with open("relevant-project-list.html") as file:
         projListHtml = file.read()
@@ -321,4 +366,7 @@ else:
     projListSoup = page_soup("projects")
 for card in projListSoup.find_all("article"):
         addProject(card)
+
+if __name__ == "__main__":
+    arg_operate()
 

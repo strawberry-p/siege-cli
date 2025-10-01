@@ -4,6 +4,8 @@ cookie.lwp
 *.htm
 *.har
 project-edit-data.txt
+#filter out project screenshots
+*.png
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
