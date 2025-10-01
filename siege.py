@@ -296,9 +296,12 @@ def edit_project(ID: int | str,
         hackatime_project = proj.hackatimeName
     if screenshot_path == None or screenshot_path == "":
         screenshot_data = proj.screenshotData
+        nameFromLink = proj.imgLink.split("/") #the filehost keeps the img name
+        reqFile = file_format(nameFromLink[-1],screenshot_data)
     else:
         with open(screenshot_path,"rb") as file:
             screenshot_data = file.read()
+        reqFile = file_format(screenshot_path,screenshot_data)
     #if type(screenshot_data) == bytes:
     #    screenshot_data = str(screenshot_data)[2:-1] #cut off b''
     formData = {"_method":"patch",
@@ -315,7 +318,7 @@ def edit_project(ID: int | str,
                "Host":"siege.hackclub.com",
                "x-csrf-token":csrf}
     req = r.Request("POST",f"{URL}/{proj.linkPart}/{ID}",headers,
-                    {"project[screenshot]":file_format(screenshot_path,screenshot_data)},formData)
+                    {"project[screenshot]":reqFile},formData)
     if send_request:
         prepReq = session.prepare_request(req) #type: ignore
         if True:
