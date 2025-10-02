@@ -437,9 +437,7 @@ def package():
     projListSoup = page_soup("projects")
     for card in projListSoup.find_all("article"):
             addProject(card)
-
-    if __name__ == "__main__":
-        arg_operate()
+    arg_operate()
 if __name__ == "__main__":
     package()
 

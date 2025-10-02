@@ -1,6 +1,11 @@
 [project]
 name = "siege-cli"
 version = "1.0.0"
+authors = [
+    {name = "strawberry-p"}
+]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 description = "A CLI tool for interacting with HC's Siege website"
 readme = "README.md"
 requires-python = ">=3.8"

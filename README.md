@@ -48,6 +48,12 @@ Note: for any pip packages, depending on your system you might need to use your 
 
 For the first run, you will be asked to enter your Siege cookies. Read above for an explanation of that process.
 
+### Package
+
+- Create and navigate to the directory you want siege-cli to reside in.
+- Run `pipx install siege-cli` or `uvx install siege-cli`
+- Run `siege-cli` to get started 
+
 ### Pyinstaller
 
 - Create and navigate to the directory you want siege-cli to reside in.
