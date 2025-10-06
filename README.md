@@ -45,6 +45,7 @@ edit - `--id` arg needed, updates properties of your Siege project matching the 
 
 ## Demo
 
+https://github.com/user-attachments/assets/21890ec3-e85b-48b1-8cd9-b8458c5169f1
 
 ## Installation
 
