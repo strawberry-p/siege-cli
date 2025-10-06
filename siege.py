@@ -7,9 +7,10 @@ SESSION_FILE = 'session.json'
 URL = "https://siege.hackclub.com"
 HTML_PARSER = "html.parser"
 debugBool = False
+dumpBool = False
 
 lastHeader = {}
-projectList = []
+projectList = [] #type: list[ProjectData]
 projectListID = []
 jar = None
 sessionData = {}
@@ -190,6 +191,17 @@ def fallback_request(prep_req,threshold=399):
         new_cookie("_siege_session",newSession)
         return res
 
+def time_to_num(lit: str) -> tuple[int,int]:
+    spl = lit.split(" ") #lit is "11h 22m", so this splits into num+a char
+    if len(spl) > 2 or len(spl) == 0:
+        print(f"debug: len {len(spl)} input {lit}")
+        return((-1,-1)) #invalid input
+    try:
+        return((int(spl[0][:-1]),
+                int(spl[0][:-1]))) #(hour,minute)
+    except Exception as _:
+        print(f"input {lit} conversion failed with {_}")
+        return((-1,-1))
 
 class ProjectData:
     def __init__(self,numID,projectName) -> None:
@@ -205,6 +217,14 @@ class ProjectData:
         self.imgLink = ""
         self.linkPart = "armory"
         self.screenshotData = b''
+        self.reviewBool = False
+        self.coin = float(0)
+        self.lastUpdate = ""
+        self.lastUpdateTxt = ""
+        self.coinStatus = ""
+        self.hour = 0
+        self.minute = 0
+        self.fullMinute = 0
 
 def addProject(card):
     global projectList, projectListID
@@ -236,6 +256,32 @@ def addProject(card):
     projDemoLink = projLinks[1].get("href")
     projSiegeTime = card.find("div",attrs={"class":"project-time"}).string.strip()
     projPageRes = session.get(f"{URL}/projects/{projID}") #type: ignore
+    #wait, why are all my variables prefixed with "proj"? useless.
+    lastEditDiv = card.find("div",attrs={"class":"project-updated"})
+    if lastEditDiv:
+        lastEditText = lastEditDiv.time.string
+        lastEditDate = lastEditDiv.time.get("datetime")
+        if lastEditDate == None or lastEditText == None:
+            print(f"debug: edit text {lastEditText} date {lastEditDate}")
+        projectList[-1].lastUpdate = lastEditDate
+        projectList[-1].lastUpdateTxt = lastEditText
+    reviewStatus = card.find("div",attrs={"class":"reviewer-feedback-indicator"})
+    if reviewStatus:
+        projectList[-1].reviewBool = True
+    coinStatus = card.find("div",attrs={"class":"project-status-indicator"})
+    if coinStatus:
+        if True:
+            coinString = tuple(coinStatus.strings)[0].strip() #hacky fix
+            #there is a newline string in the element which makes .string return None
+            if "value" in coinString.lower():
+                projectList[-1].coin = float(coinString[7:]) #"Value: " is 7 chars
+                projectList[-1].coinStatus = coinString
+        else:
+            print(f"debug: coin status {coinStatus} is empty?")
+            print(tuple(coinStatus.strings))
+    #parse the time data
+    hour,minute = time_to_num(projSiegeTime[12:]) #"Time spent : "
+    fullMinute = minute+hour*60
     if projPageRes.status_code > 299:
         raise Exception(f"addProject {projID} page returned {projPageRes.status_code}")
     else:
@@ -248,8 +294,11 @@ def addProject(card):
     projectList[-1].desc = projDesc
     projectList[-1].siegeTime = projSiegeTime
     projectList[-1].soupTags = projTags
-    projectList[-1].imgLink = projImageLink
-    projectList[-1].screenshotContent = projImageContent
+    projectList[-1].imgLink = projImageLink #type: ignore
+    projectList[-1].screenshotData = projImageContent
+    projectList[-1].hour = hour
+    projectList[-1].minute = minute
+    projectList[-1].fullMinute = fullMinute
     #set the object properties from the values
     return projectList[-1]
 
@@ -257,7 +306,14 @@ def addProject(card):
 
 def soup_to_edit_keys(page: BeautifulSoup):
     csrf = page.find("meta",attrs={"name":"csrf-token"}).get("content") #type: ignore
-    authentic = page.find("input",attrs={"name":"authenticity_token"}).get("value") #type: ignore
+    authenticNode = page.find("input",attrs={"name":"authenticity_token"})
+    if authenticNode:
+        authentic = page.find("input",attrs={"name":"authenticity_token"}).get("value") #type: ignore
+    else:
+        print("authenticity token not found")
+        if dumpBool:
+            print(page)
+        authentic = "AUTHENTICITY_NOT_FOUND"
     return((csrf,authentic))
 
 def file_format(path,fileContent,octet=False):
@@ -342,7 +398,7 @@ def edit_project(ID: int | str,
             print(prepReq.headers)
             if show_content:
                 print("========\n========\n========")
-                print(prepReq.body[1000:1500])
+                print(prepReq.body[1000:1500]) #type: ignore
                 print("========")
         res = session.send(prepReq,timeout=10,allow_redirects=False) #type: ignore
         #print(f"project edit {res.status_code}")
@@ -368,7 +424,7 @@ def edit_project(ID: int | str,
             if not (screenshot_path == None or screenshot_path == ""):
                 projectList[listPos].screenshotData = screenshot_data
                 newLink,newImgContent = get_image(page_soup(f"projects/{ID}"))
-                projectList[listPos].imgLink = newLink
+                projectList[listPos].imgLink = newLink #type: ignore
                 if not screenshot_data == newImgContent:
                     #i am curious about the content returned from the cdn-ish link
                     print(f"content differs: beginning {str(screenshot_data)[:10]} vs {str(newImgContent)[:10]}")
@@ -379,6 +435,17 @@ def edit_project(ID: int | str,
         print(formData)
         return ("dummy",0)
 
+def time_spent_today():
+    soup = page_soup("keep")
+    timeSpan = soup.find("span",attrs={"class":"home-progress-bottom"}) #type: ignore
+    if timeSpan != None:
+        timeString = timeSpan.string #type: ignore
+        if "create" in timeString.lower(): #type: ignore
+            return(("No project created this week",(0,0)))
+        else:
+            return((timeString,time_to_num(timeString[16:]))) #"today you coded "
+    else:
+        return(("",(-1,-1)))
 
 
 def project_nice_view(proj:ProjectData):
@@ -387,13 +454,17 @@ def project_nice_view(proj:ProjectData):
     print(f"  {proj.desc}")
     if ({proj.hackatimeName} != None) and proj.hackatimeName != "" and proj.hackatimeName != "#":
         print(f"  Hackatime {proj.hackatimeName} ({proj.siegeTime})")
+    if proj.coin != 0:
+        print(f"  {proj.coin} coins earned")
     if proj.repo != "":
         print(f"  Repo {proj.repo}")
     if proj.demo != "":
         print(f"  Demo {proj.demo}")
+    if proj.lastUpdate != "" and proj.lastUpdate != None:
+        print(f"  Last updated {proj.lastUpdate}")
 
 def arg_operate():
-    global HTML_PARSER
+    global HTML_PARSER,debugBool,dumpBool
     parser = argparse.ArgumentParser(description="Utility for listing and updating your Siege projects")
     parser.add_argument("cmd",default="list",choices=["list","edit","show"])
     parser.add_argument("-l","--lxml",action="store_true",help="Use a faster parser (LXML). Use if you installed it: 'pip install lxml'")
@@ -407,14 +478,27 @@ def arg_operate():
     updateGroup.add_argument("-x","--remove-screenshot",help="Flag for removing the current screenshot",action="store_true")
     updateGroup.add_argument("-w","--hackatime",help="Hackatime project name",required=False)
     parser.add_argument("--debug",action="store_true",required=False)
+    parser.add_argument("--html-dump",action="store_true",required=False)
+    parser.add_argument("--today",action="store_true",required=False)
     args = parser.parse_args()
     if args.debug:
         debugBool = True
+    if args.html_dump:
+        dumpBool = True
     if args.lxml:
         HTML_PARSER = "lxml"
+    timeToday = time_spent_today()
     if args.cmd == "list":
+        coinTotal = 0
+        timeTotal = 0
         for project in projectList:
             project_nice_view(project)
+            coinTotal += project.coin
+            timeTotal += project.fullMinute
+        minuteTotal = timeTotal % 60
+        hourTotal = (timeTotal-minuteTotal)/60
+        print(f"\nTotal time: {round(hourTotal)}h {minuteTotal}m")
+        print(f"Total coins: {coinTotal}")
     elif args.cmd == "edit":
         if args.remove_screenshot:
             remove_scr = "true"
@@ -430,6 +514,8 @@ def arg_operate():
             raise Exception(f"To show a project, specify the project ID. Choose out of {projectListID}")
         listPos = projectListID.index(args.id)
         project_nice_view(projectList[listPos])
+    if args.today:
+        print(f"{timeToday[0]}")
     
 
 def package():

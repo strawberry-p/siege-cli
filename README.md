@@ -58,7 +58,7 @@ For the first run, you will be asked to enter your Siege cookies. Read above for
 
 - Create and navigate to the directory you want siege-cli to reside in.
 - Download the siege.exe build from the release (`git clone https://github.com/strawberry-p/siege-cli.git` and `cd siege-cli` also works for these steps)
-- Run `dist/siege/siege.exe list` or `siege.exe list` to get started
+- Run `dist/siege.exe list` or `siege.exe list` to get started
 
 ### Python
 
