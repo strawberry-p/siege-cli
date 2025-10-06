@@ -4,6 +4,7 @@
 
 siege-cli is a CLI tool for interacting with the [Siege](https://siege.hackclub.com) website.
 Currently, listing your projects and updating their information is supported.
+Update notes are in a [separate file](UPDATE.md)
 
 ## Cookies
 
@@ -41,6 +42,9 @@ edit - `--id` arg needed, updates properties of your Siege project matching the 
 - `-s PATH` `--screenshot PATH` Local path from the cwd to the screenshot you want to upload
 - `-x` `--remove-screenshot` Flag for removing the current project screenshot
 - `-w` `--hackatime HACKATIME_NAME` Name of the hackatime project associated with this project
+
+## Demo
+
 
 ## Installation
 

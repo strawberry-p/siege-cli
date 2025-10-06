@@ -394,7 +394,7 @@ def edit_project(ID: int | str,
                     {"project[screenshot]":reqFile},formData)
     if send_request:
         prepReq = session.prepare_request(req) #type: ignore
-        if True:
+        if False:
             print(prepReq.headers)
             if show_content:
                 print("========\n========\n========")
